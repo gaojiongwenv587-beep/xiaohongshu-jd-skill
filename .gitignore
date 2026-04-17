@@ -1,0 +1,6 @@
+.workbuddy/
+*.zip
+*.plist
+*.command
+__pycache__/
+*.pyc
