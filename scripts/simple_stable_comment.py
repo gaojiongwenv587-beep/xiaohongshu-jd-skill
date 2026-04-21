@@ -203,10 +203,12 @@ def check_prerequisites():
     ok = True
 
     # Python 版本
-    if sys.version_info < (3, 11):
-        print(f"❌ 需要 Python 3.11+，当前版本 {sys.version.split()[0]}")
+    if sys.version_info < (3, 9):
+        print(f"❌ 需要 Python 3.9+，当前版本 {sys.version.split()[0]}")
         print("   下载地址：https://www.python.org/downloads/")
         ok = False
+    else:
+        print(f"✓ Python 版本 {sys.version.split()[0]} (推荐 3.11+)")
 
     # cli.py 是否存在
     if not os.path.exists(CLI_SCRIPT):
