@@ -8,14 +8,39 @@ import sys
 import json
 import time
 import random
+import socket
 import subprocess
 from datetime import datetime, timedelta
+
+# ===== 平台检测 =====
+IS_WINDOWS = sys.platform == 'win32'
+IS_MAC     = sys.platform == 'darwin'
+
+def _default_profile_dir():
+    if IS_WINDOWS:
+        base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~')
+        return os.path.join(base, 'xhs', 'chrome-profile-intl')
+    return os.path.join(os.path.expanduser('~'), '.xhs', 'chrome-profile-intl')
+
+def _chrome_exe():
+    if IS_WINDOWS:
+        for p in [
+            r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), r'Google\Chrome\Application\chrome.exe'),
+        ]:
+            if os.path.exists(p):
+                return p
+        return 'chrome'          # 希望在 PATH 里
+    if IS_MAC:
+        return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    return 'google-chrome'       # Linux
 
 # 设置海外版 RedNote 环境变量
 if 'XHS_VERSION' not in os.environ:
     os.environ['XHS_VERSION'] = 'intl'
 if 'XHS_USER_DATA_DIR' not in os.environ:
-    os.environ['XHS_USER_DATA_DIR'] = '/Users/macstudio/.xhs/chrome-profile-intl'
+    os.environ['XHS_USER_DATA_DIR'] = _default_profile_dir()
 
 # 已评论记录文件
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -103,20 +128,22 @@ COMMENT_TEMPLATES = [
 
 # ===== 搜索关键词 =====
 KEYWORDS = [
-    "梨大皮肤科",
-    "韩国皮肤科",
-    "江南皮肤科",
-    "韩国医美",
-    "梨大医美",
-    "韩国变美",
-    "梨大变美",
-    "江南医美",
-    "韩国整形",
-    "新沙皮肤科",
-    "pfk",
-    "韩国pfk",
-    "梨大pfk",
-    "江南pfk",
+    # pfk品牌词（10个）
+    "韩国pfk", "小韩pfk", "pfk推荐", "🇰🇷pfk", "梨大pfk", "江南pfk", "新沙pfk", "梨大pfk推荐", "pfk攻略", "pfk种草",
+    # 地域+医美（10个）
+    "梨大皮肤科", "江南皮肤科", "新沙皮肤科", "梨大医美", "江南医美", "韩国医美攻略", "韩国皮肤科攻略", "韩国皮肤科推荐", "韩国变美攻略", "梨大变美记",
+    # 项目类（11个）
+    "韩国光电", "韩国光电推荐", "韩国水光针", "韩国抗衰", "韩国抗衰推荐", "韩国热玛吉", "韩国超声刀", "韩国皮秒", "韩国瘦脸针", "韩国肉毒素", "韩国玻尿酸",
+    # 高意向推荐词（3个）
+    "梨大皮肤科推荐", "新沙皮肤科推荐", "梨大医美推荐",
+    # 体验/种草（4个）
+    "韩国医美种草", "韩国医美体验", "梨大医美种草", "韩国皮肤科体验",
+    # 攻略/地域（4个）
+    "江南变美攻略", "梨大变美攻略", "新沙变美", "新沙医美",
+    # 日记/测评（3个）
+    "韩国医美日记", "韩国皮肤科测评", "梨大皮肤科测评",
+    # 避雷/壁垒（8个）
+    "韩国皮肤科避雷", "梨大皮肤科避雷", "韩国医美避雷", "pfk避雷", "韩国pfk壁垒", "梨大皮肤科壁垒",
 ]
 
 # ===== 内容过滤关键词 =====
@@ -152,7 +179,23 @@ ORG_KEYWORDS = [
     'official', '旗舰店', '品牌', '工作室',
 ]
 
-CLI_SCRIPT = '/Users/macstudio/.claude/skills/xiaohongshu-skills/scripts/cli.py'
+def _find_cli():
+    # 1. 环境变量覆盖
+    if 'XHS_CLI_SCRIPT' in os.environ:
+        return os.environ['XHS_CLI_SCRIPT']
+    # 2. 相对本脚本查找（同仓库 skill 布局）
+    candidate = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..', 'xiaohongshu-skills', 'scripts', 'cli.py'))
+    if os.path.exists(candidate):
+        return candidate
+    # 3. 平台默认 workbuddy 路径
+    home = os.path.expanduser('~')
+    if IS_WINDOWS:
+        base = os.environ.get('USERPROFILE', home)
+    else:
+        base = home
+    return os.path.join(base, '.workbuddy', 'skills', 'xiaohongshu-skills', 'scripts', 'cli.py')
+
+CLI_SCRIPT = _find_cli()
 
 # ===== 诊所配置 =====
 def load_clinic_config():
@@ -211,7 +254,7 @@ def save_commented(commented_set):
         print(f"   ❌ 保存记录失败: {e}")
 
 # ===== CLI 调用 =====
-def run_cli(args, timeout=30, debug=False):
+def run_cli(args, timeout=90, debug=False):
     try:
         result = subprocess.run(
             [sys.executable, CLI_SCRIPT] + args,
@@ -220,31 +263,29 @@ def run_cli(args, timeout=30, debug=False):
             text=True,
             timeout=timeout
         )
+        
         if result.stdout:
             output = result.stdout.strip()
-            start = output.find('{')
-            end = output.rfind('}')
-            if start != -1 and end != -1 and end > start:
+            # 查找JSON响应
+            import re
+            json_match = re.search(r'\{.*\}', output, re.DOTALL)
+            if json_match:
                 try:
-                    return json.loads(output[start:end+1])
-                except:
+                    data = json.loads(json_match.group())
+                    return data
+                except json.JSONDecodeError:
+                    if debug:
+                        print(f"   [DEBUG] JSON解析失败: {json_match.group()[:100]}")
                     pass
-        if debug:
-            # 显示完整 stderr 和 stdout 帮助诊断
-            if result.stderr and result.stderr.strip():
-                # 过滤掉 URL配置 等正常启动行，只保留关键报错
-                stderr_lines = [l for l in result.stderr.strip().splitlines()
-                                if not l.startswith('[URL配置]') and l.strip()]
-                if stderr_lines:
-                    print(f"   [DEBUG stderr]\n" + "\n".join(stderr_lines[-20:]))
-            if result.stdout:
-                stdout_clean = result.stdout.strip()
-                # 找 JSON 之外的 print 输出（诊断信息）
-                non_json = [l for l in stdout_clean.splitlines()
-                            if l.strip() and not l.strip().startswith(('{', '}', '[', ']', '"', ' '))]
-                if non_json:
-                    print(f"   [DEBUG stdout-log]\n" + "\n".join(non_json[:10]))
+        
+        if debug and result.stderr:
+            stderr_lines = [l for l in result.stderr.strip().splitlines() 
+                          if l.strip() and not l.startswith('[URL配置]')]
+            if stderr_lines:
+                print(f"   [DEBUG] stderr: {' '.join(stderr_lines[-3:])}")
+        
         return None
+        
     except subprocess.TimeoutExpired:
         print(f"   ⚠️ CLI超时({timeout}s)")
         return None
@@ -253,29 +294,49 @@ def run_cli(args, timeout=30, debug=False):
         return None
 
 def is_chrome_running():
+    # 最可靠的跨平台方式：检查调试端口是否开放
     try:
-        result = subprocess.run(
-            ["pgrep", "-f", "Google Chrome.*remote-debugging-port=9222"],
-            capture_output=True, text=True
-        )
-        return result.returncode == 0 and result.stdout.strip()
-    except:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        result = s.connect_ex(('127.0.0.1', 9222))
+        s.close()
+        if result == 0:
+            return True
+    except Exception:
+        pass
+    # 回退：进程名检查
+    try:
+        if IS_WINDOWS:
+            out = subprocess.run(['tasklist'], capture_output=True, text=True).stdout
+            return 'chrome.exe' in out.lower()
+        else:
+            r = subprocess.run(
+                ['pgrep', '-f', 'Google Chrome.*remote-debugging-port=9222'],
+                capture_output=True, text=True
+            )
+            return r.returncode == 0 and bool(r.stdout.strip())
+    except Exception:
         return False
 
 def has_login_cookies():
-    cookie_path = '/Users/macstudio/.xhs/chrome-profile-intl/Default/Cookies'
+    profile_dir = os.environ.get('XHS_USER_DATA_DIR', _default_profile_dir())
+    cookie_path = os.path.join(profile_dir, 'Default', 'Cookies')
     return os.path.exists(cookie_path) and os.path.getsize(cookie_path) > 1000
 
 def check_login(silent=True):
-    if is_chrome_running() and has_login_cookies():
-        if not silent:
-            print("✅ 已登录（Chrome运行中）")
-        return True
-    result = run_cli(['check-login-silent'])
+    # 简化登录检查：直接调用CLI的check-login命令
+    result = run_cli(['check-login'])
     if result and result.get('logged_in'):
         if not silent:
             print("✅ 已登录")
         return True
+    
+    # 如果CLI调用失败，尝试备用方法
+    if is_chrome_running():
+        if not silent:
+            print("⚠️ Chrome已运行，但登录状态不确定")
+        return True  # 假设已登录
+    
     if not silent:
         print("❌ 未登录，请扫码登录")
     return False
@@ -284,13 +345,18 @@ def ensure_chrome():
     if is_chrome_running():
         return True
     print("🚀 启动 Chrome...")
-    subprocess.Popen([
-        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    profile_dir = os.environ.get('XHS_USER_DATA_DIR', _default_profile_dir())
+    cmd = [
+        _chrome_exe(),
         '--remote-debugging-port=9222',
-        '--user-data-dir=/Users/macstudio/.xhs/chrome-profile-intl',
+        f'--user-data-dir={profile_dir}',
         '--disable-blink-features=AutomationControlled',
-        '--lang=zh-CN'
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        '--lang=zh-CN',
+    ]
+    kwargs = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
+    if IS_WINDOWS:
+        kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+    subprocess.Popen(cmd, **kwargs)
     time.sleep(5)
     return is_chrome_running()
 
@@ -344,7 +410,10 @@ def is_within_days(feed_or_detail, days=30):
 
 def is_korea_medical(feed, detail=None):
     """判断是否为韩国医美相关帖子。
-    策略：标题或正文中命中「地域词+医美词」组合，OR 标题直接包含pfk/皮肤科等强信号词
+    优化策略：放宽过滤条件，只要满足以下任一条件即可：
+    1. 标题或正文包含医美关键词
+    2. 标题或正文包含韩国地域词
+    3. 标题包含强信号词（pfk/皮肤科等）
     """
     user = feed.get('user', {}) or {}
     if is_org_account(user.get('nickname', '')):
@@ -361,20 +430,28 @@ def is_korea_medical(feed, detail=None):
     if any(bw in full_text for bw in BLACKLIST):
         return False
 
-    # 强信号词：标题含这些词直接通过（无需地域词组合）
+    # 强信号词：标题含这些词直接通过
     STRONG_SIGNALS = [
         'pfk', '皮肤科', '医美', 'clinic', 'aesthetic', 'dermatology',
         '整形', '水光', '玻尿酸', '肉毒', '光电', '抗衰',
+        'botox', 'filler', 'laser', 'treatment'
     ]
     if any(kw in title for kw in STRONG_SIGNALS):
-        # 额外确认有韩国/梨大相关词（避免误触国内帖子）
-        if any(kw.lower() in full_text for kw in KOREA_LOCATION_KEYWORDS):
-            return True
+        return True
 
-    # 双词组合：地域词 + 医美词（全文匹配）
+    # 放宽条件：只要满足地域词或医美词之一即可
     has_location = any(kw.lower() in full_text for kw in KOREA_LOCATION_KEYWORDS)
     has_medical = any(kw.lower() in full_text for kw in KOREA_MEDICAL_KEYWORDS)
-    return has_location and has_medical
+    
+    # 优先组合匹配，其次放宽到单条件
+    if has_location and has_medical:
+        return True  # 理想情况
+    elif has_medical:
+        return True  # 放宽条件：有医美关键词即可
+    elif has_location:
+        return True  # 放宽条件：有韩国地域词即可
+    
+    return False
 
 def get_detail(feed_id):
     result = run_cli(['get-feed-detail', '--feed-id', feed_id], timeout=30)
@@ -461,9 +538,13 @@ def main():
     if home_feeds:
         time.sleep(random.uniform(2, 4))
 
-    # 第二步：关键词搜索（全部执行，不受主页数量限制）
-    print(f"\n🔎 开始关键词搜索（共{len(KEYWORDS)}个关键词）...")
-    for keyword in KEYWORDS:
+    # 第二步：关键词搜索（随机选取10个关键词，避免过多搜索）
+    search_keywords = KEYWORDS.copy()
+    random.shuffle(search_keywords)
+    selected_keywords = search_keywords[:10]  # 每次只搜索10个关键词
+    
+    print(f"\n🔎 开始关键词搜索（随机选取{len(selected_keywords)}个关键词）...")
+    for keyword in selected_keywords:
         feeds = search_feeds(keyword)
         new_count = 0
         for f in feeds:
