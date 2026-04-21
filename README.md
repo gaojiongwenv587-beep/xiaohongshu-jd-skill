@@ -1,77 +1,124 @@
-# VA皮肤科小红书自动运营 Skill
+# 小红书自动运营 Skill
 
-## 快速开始
+自动在小红书（RedNote 国际版）上评论韩国医美相关帖子，支持任意诊所配置。
 
-### 1. 环境准备
+---
 
-```bash
-# 设置环境变量
-export XHS_VERSION=intl
-export XHS_USER_DATA_DIR=/Users/macstudio/.xhs/chrome-profile-intl
+## 系统要求
 
-# 确保Chrome在后台运行
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-  --remote-debugging-port=9222 \
-  --user-data-dir=/Users/macstudio/.xhs/chrome-profile-intl \
-  --disable-blink-features=AutomationControlled \
-  --lang=zh-CN
-```
+| 要求 | 说明 |
+|------|------|
+| 操作系统 | macOS / Windows 10+ / Linux |
+| Python | **3.11 或更高版本** |
+| Chrome | 最新版 Google Chrome |
+| 网络 | 能正常访问 rednote.com |
 
-### 2. 登录
+---
 
-```bash
-python3 scripts/cli.py login
-# 扫码登录后保持Chrome运行
-```
+## 安装步骤
 
-### 3. 开始自动评论
+### 第一步：下载本仓库
 
 ```bash
-python3 scripts/simple_stable_comment.py
+git clone https://github.com/gaojiongwenv587-beep/xiaohongshu-jd-skill.git
+cd xiaohongshu-jd-skill
 ```
+
+### 第二步：安装 Python 依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+> 如果 `pip` 命令报错，尝试 `pip3 install -r requirements.txt`
+
+### 第三步：配置诊所信息（首次运行时自动触发）
+
+直接运行主脚本，首次运行会自动启动配置向导：
+
+```bash
+python scripts/simple_stable_comment.py
+```
+
+向导会询问：
+- 诊所名称（如：VA、曙光医院）
+- 所在地区（如：梨大、江南、新沙）
+- 医生职称（如：大教授、主任医师）
+- 负责人称谓（如：园长、院长）
+
+配置保存在 `config/clinic.json`，之后运行不再询问。
+
+### 第四步：登录小红书
+
+脚本运行时会自动打开 Chrome 并提示扫码登录。
+登录成功后保持 Chrome 在后台运行即可。
+
+---
+
+## 日常使用
+
+每次运行：
+
+```bash
+python scripts/simple_stable_comment.py
+```
+
+脚本自动完成：主页浏览 → 关键词搜索 → 过滤 → 评论/点赞/收藏
+
+---
+
+## Windows 用户
+
+直接在命令提示符（CMD）或 PowerShell 运行：
+
+```cmd
+python scripts\simple_stable_comment.py
+```
+
+> Chrome 路径和用户数据目录会自动检测，无需手动配置。
+
+---
+
+## 重新配置诊所
+
+删除配置文件后重新运行即可：
+
+```bash
+# macOS / Linux
+rm config/clinic.json
+
+# Windows
+del config\clinic.json
+```
+
+---
+
+## 常见问题
+
+**Q：运行提示"找不到 Chrome"**
+A：安装 Google Chrome：https://www.google.com/chrome/
+
+**Q：运行提示"缺少 Python 包"**
+A：运行 `pip install -r requirements.txt`
+
+**Q：登录后提示"未登录"**
+A：确保 Chrome 保持在后台运行，重新扫码登录
+
+**Q：提示"已评论过"太多**
+A：正常现象，说明去重机制生效。等待新帖子出现即可
 
 ---
 
 ## 功能特性
 
-- ✅ 主页推荐浏览 + 关键词搜索双渠道
-- ✅ 自动评论（54条话术随机选取）
-- ✅ 自动点赞（30%概率）
-- ✅ 自动收藏（20%概率）
-- ✅ 智能去重（不重复评论）
-- ✅ 时间过滤（只评论30天内）
-- ✅ 内容相关性检测
-- ✅ 机构号过滤
-- ✅ 竞品黑名单
-
----
-
-## 核心卖点
-
-1. **园长大教授·从业20+年** - 梨大大教授级院长，资历深厚
-2. **梨大仪器库·项目最全** - 一站式搞定，不用跑多家
-3. **白菜价·高性价比** - 大教授级别但价格亲民
-
----
-
-## 文件说明
-
-| 文件 | 说明 |
-|------|------|
-| `SKILL.md` | 完整规则文档 |
-| `scripts/simple_stable_comment.py` | 主执行脚本 |
-| `config/keywords.txt` | 搜索关键词列表 |
-| `docs/comments.md` | 评论话术完整版 |
-| `docs/rules.md` | 过滤规则详细说明 |
-
----
-
-## 注意事项
-
-1. 只使用 `simple_stable_comment.py`，不要使用 `auto_comment.py`（已废弃）
-2. 保持Chrome在后台运行
-3. 如果提示"已评论过"过多，检查记录文件
-4. 登录状态失效时需重新扫码登录
+- 主页推荐 + 关键词搜索双渠道
+- 自动评论（62 条话术随机选取）
+- 自动点赞（30% 概率）
+- 自动收藏（20% 概率）
+- 智能去重，不重复评论
+- 只评论 30 天内的帖子
+- 机构号过滤 + 竞品黑名单
+- 支持任意诊所配置
 
 ---
 
@@ -79,13 +126,19 @@ python3 scripts/simple_stable_comment.py
 
 ```
 xiaohongshu-jd-skill/
-├── SKILL.md                    # 完整规则文档
-├── README.md                   # 本文件
-├── scripts/
-│   └── simple_stable_comment.py # 主执行脚本
+├── README.md                        # 本文件
+├── SKILL.md                         # 完整规则文档（供 Claude 读取）
+├── requirements.txt                 # Python 依赖
 ├── config/
-│   └── keywords.txt            # 搜索关键词
+│   ├── clinic.json                  # 诊所配置（运行后自动生成）
+│   └── keywords.txt                 # 搜索关键词列表
+├── scripts/
+│   ├── simple_stable_comment.py     # 主执行脚本
+│   ├── cli.py                       # XHS CLI 入口
+│   ├── chrome_launcher.py           # Chrome 启动模块
+│   ├── account_manager.py           # 账号管理
+│   └── xhs/                         # XHS API 实现包
 └── docs/
-    ├── comments.md             # 评论话术
-    └── rules.md                # 过滤规则
+    ├── comments.md                  # 评论话术说明
+    └── rules.md                     # 过滤规则说明
 ```

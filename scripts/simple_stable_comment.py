@@ -183,19 +183,59 @@ def _find_cli():
     # 1. 环境变量覆盖
     if 'XHS_CLI_SCRIPT' in os.environ:
         return os.environ['XHS_CLI_SCRIPT']
-    # 2. 相对本脚本查找（同仓库 skill 布局）
+    # 2. 与本脚本同目录（打包进仓库的默认位置）
+    local = os.path.join(SCRIPT_DIR, 'cli.py')
+    if os.path.exists(local):
+        return local
+    # 3. 相对本脚本查找（workbuddy skill 布局）
     candidate = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..', 'xiaohongshu-skills', 'scripts', 'cli.py'))
     if os.path.exists(candidate):
         return candidate
-    # 3. 平台默认 workbuddy 路径
+    # 4. 平台默认 workbuddy 路径
     home = os.path.expanduser('~')
-    if IS_WINDOWS:
-        base = os.environ.get('USERPROFILE', home)
-    else:
-        base = home
+    base = os.environ.get('USERPROFILE', home) if IS_WINDOWS else home
     return os.path.join(base, '.workbuddy', 'skills', 'xiaohongshu-skills', 'scripts', 'cli.py')
 
 CLI_SCRIPT = _find_cli()
+
+# ===== 前置检查 =====
+def check_prerequisites():
+    ok = True
+
+    # Python 版本
+    if sys.version_info < (3, 11):
+        print(f"❌ 需要 Python 3.11+，当前版本 {sys.version.split()[0]}")
+        print("   下载地址：https://www.python.org/downloads/")
+        ok = False
+
+    # cli.py 是否存在
+    if not os.path.exists(CLI_SCRIPT):
+        print(f"❌ 找不到 cli.py：{CLI_SCRIPT}")
+        print("   请确认已正确 clone 本仓库（scripts/ 目录应包含 cli.py）")
+        ok = False
+
+    # 第三方依赖
+    missing_pkgs = []
+    for pkg in ('requests', 'websockets'):
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing_pkgs.append(pkg)
+    if missing_pkgs:
+        print(f"❌ 缺少 Python 包：{', '.join(missing_pkgs)}")
+        print(f"   安装命令：pip install {' '.join(missing_pkgs)}")
+        ok = False
+
+    # Chrome 是否存在
+    chrome = _chrome_exe()
+    if chrome not in ('chrome', 'google-chrome') and not os.path.exists(chrome):
+        print(f"❌ 未找到 Chrome：{chrome}")
+        print("   下载地址：https://www.google.com/chrome/")
+        ok = False
+
+    if not ok:
+        print("\n请解决以上问题后重新运行。")
+        sys.exit(1)
 
 # ===== 诊所配置 =====
 def load_clinic_config():
@@ -502,6 +542,8 @@ def main():
     print("=" * 50)
     print(f"小红书评论（RedNote国际版）- {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 50)
+
+    check_prerequisites()
 
     # ── 诊所配置（首次运行触发向导）──
     cfg = load_clinic_config()
